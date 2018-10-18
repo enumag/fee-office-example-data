@@ -129,12 +129,10 @@ foreach ($data->apartments as $apartment) {
 
         // Usually there is separate owner for each apartment but of course some people can own multiple apartments.
         // Here we have 20% chance for an existing owner to be chosen instead of creating a new one.
-        $chooseExistingContact = $faker->numberBetween(1, 5) === 5;
-        $contactId = null;
+        $chooseExistingContact = $faker->numberBetween(1, 5) === 5 && isset($apartmentOwnersPerAccountingOrganization[$accountingOrganizationId]);
         if ($chooseExistingContact) {
             $contactId = $faker->randomElement($apartmentOwnersPerAccountingOrganization[$accountingOrganizationId]);
-        }
-        if (! $contactId) {
+        } else {
             $data->contacts[] = $contact = createContact();
             $apartmentOwnersPerAccountingOrganization[$accountingOrganizationId][] = $contactId = $contact->id;
         }
