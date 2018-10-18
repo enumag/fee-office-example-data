@@ -125,6 +125,29 @@ function createFeeRecipe(object $financialAccount, string $name, DateTimeImmutab
     ];
 }
 
+function createFee(object $feeRecipe, DateTimeImmutable $since, DateTimeImmutable $until): object
+{
+    global $faker;
+    return (object) [
+        'id' => Uuid::uuid4()->toString(),
+        'feeRecipeId' => $feeRecipe->id,
+        'since' => $since->format(DateTimeImmutable::ATOM),
+        'until' => $until->format(DateTimeImmutable::ATOM),
+        'price' => $faker->numberBetween(0, 2000),
+    ];
+}
+
+function createPayment(object $financialAccountGroup, DateTimeImmutable $date): object
+{
+    global $faker;
+    return (object) [
+        'id' => Uuid::uuid4()->toString(),
+        'financialAccountGroupId' => $financialAccountGroup->id,
+        'date' => $date->format(DateTimeImmutable::ATOM),
+        'price' => $faker->numberBetween(10, 5000),
+    ];
+}
+
 
 $data = (object) [];
 
@@ -272,6 +295,25 @@ foreach ($data->financialAccounts as $financialAccount) {
             $data->feeRecipes[] = createFeeRecipe($financialAccount, $feeRecipeType, $since, $until);
             $since = $until ? $until->modify('+1 day') : null;
         }
+    }
+}
+
+foreach ($data->feeRecipes as $feeRecipe) {
+    /** @var DateTimeImmutable $since */
+    $since = $feeRecipe->since;
+    $endDate = $feeRecipe->until ?? (new DateTimeImmutable())->modify('last day of previous month');
+    while ($since < $endDate) {
+        $until = min($since->modify('last day of this month'), $endDate);
+        $data->fee[] = createFee($feeRecipe, $since, $until);
+        $since = $until->modify('+1 day');
+    }
+}
+
+foreach ($data->financialAccountGroups as $financialAccountGroup) {
+    $date = DateTimeImmutable::createFromMutable($faker->dateTimeBetween('-5 years', '-2 years'));
+    for ($i = 1; $i <= $faker->numberBetween(10, 30); ++$i) {
+        $data->payments[] = createPayment($financialAccountGroup, $date);
+        $date = $date->modify('+' . $faker->numberBetween(10, 100) . ' days');
     }
 }
 
