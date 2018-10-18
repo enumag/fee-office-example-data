@@ -71,6 +71,60 @@ function createContact(): object {
     ];
 }
 
+function createApartmentAttribute(string $name): object
+{
+    return (object) [
+        'id' => Uuid::uuid4()->toString(),
+        'name' => $name,
+    ];
+}
+
+function createAttributeChange(object $apartmentAttribute, \DateTimeImmutable $date, int $value): object
+{
+    return (object) [
+        'apartmentAttributeId' => $apartmentAttribute->id,
+        'date' => $date->format(DateTimeImmutable::ATOM),
+        'value' => $value,
+    ];
+}
+
+function createFinancialAccountGroup(string $accountingOrganizationId, string $contactId): object
+{
+    return (object) [
+        'id' => Uuid::uuid4()->toString(),
+        'accountingOrganizationId' => $accountingOrganizationId,
+        'contactId' => $contactId,
+    ];
+}
+
+function createFinancialAccount(object $financialAccountGroup, string $contractId): object
+{
+    return (object) [
+        'id' => Uuid::uuid4()->toString(),
+        'financialAccountGroupId' => $financialAccountGroup,
+        'contractId' => $contractId,
+    ];
+}
+
+function createFeeRecipe(object $financialAccount, string $name, DateTimeImmutable $since, ?DateTimeImmutable $until): object
+{
+    global $faker;
+    return (object) [
+        'id' => Uuid::uuid4()->toString(),
+        'financialAccountId' => $financialAccount->id,
+        'name' => $name,
+        'since' => $since,
+        'until' => $until,
+        'formula' => $faker->randomElement(
+            [
+                (string) $faker->numberBetween(10, 1000),
+                'area * ' . $faker->numberBetween(5, 50),
+                'body_count * ' . $faker->numberBetween(100, 500),
+            ]
+        )
+    ];
+}
+
 
 $data = (object) [];
 
@@ -120,10 +174,18 @@ foreach ($data->entrances as $entrance) {
 
 // accountingOrganizationId => contactId[]
 $apartmentOwnersPerAccountingOrganization = [];
+// apartmentId => DateTimeImmutable
+$startingDatePerApartment = [];
+// contactId => contractId[]
+$contractsPerOwner = [];
+// contractId => apartmentId
+$contractApartmentMap = [];
 
 foreach ($data->apartments as $apartment) {
     $contractsCount = $faker->numberBetween(1, 3);
     $since = DateTimeImmutable::createFromMutable($faker->dateTimeBetween('-5 years', '-2 years'));
+    $startingDatePerApartment[$apartment->id] = $since;
+
     for ($i = 1; $i <= $contractsCount; ++$i) {
         $accountingOrganizationId = $accountingOrganizationMap[$apartment->id];
 
@@ -141,7 +203,7 @@ foreach ($data->apartments as $apartment) {
         $isLastContract = $i === $contractsCount;
         $until = $isLastContract ? null : $since->modify('+' . $faker->numberBetween(30, 600) . ' days');
 
-        $data->contracts[] = createContract(
+        $data->contracts[] = $contract = createContract(
             $apartment,
             $accountingOrganizationId,
             $accountingOrganizationSubjects[$accountingOrganizationId],
@@ -150,8 +212,65 @@ foreach ($data->apartments as $apartment) {
             $until
         );
 
+        $contractApartmentMap[$contract->id] = $apartment->id;
+        $contractsPerOwner[$contactId][] = $contract->id;
+
         if (! $isLastContract) {
             $since = $until->modify('+1 day');
+        }
+    }
+}
+
+$data->apartmentAttributes[] = $apartmentAttributeArea = createApartmentAttribute('Area');
+$data->apartmentAttributes[] = $apartmentAttributeBodyCount = createApartmentAttribute('Body count');
+
+foreach ($data->apartments as $apartment) {
+    $apartment->attributeChanges[] = createAttributeChange(
+        $apartmentAttributeArea,
+        $startingDatePerApartment[$apartment->id],
+        $faker->numberBetween(50, 100)
+    );
+
+    $date = $startingDatePerApartment[$apartment->id];
+    for ($i = 1; $i <= $faker->numberBetween(1, 5); ++$i) {
+        $apartment->attributeChanges[] = createAttributeChange(
+            $apartmentAttributeBodyCount,
+            $date,
+            $faker->numberBetween(1, 6)
+        );
+
+        $date = $date->modify('+' . $faker->numberBetween(30, 600) . ' days');
+    }
+}
+
+foreach ($apartmentOwnersPerAccountingOrganization as $accountingOrganizationId => $apartmentOwners) {
+    foreach ($apartmentOwners as $contactId) {
+        $data->financialAccountGroups[] = createFinancialAccountGroup($accountingOrganizationId, $contactId);
+    }
+}
+
+foreach ($data->financialAccountGroups as $financialAccountGroup) {
+    $contractId = $faker->randomElement($contractsPerOwner[$financialAccountGroup->contactId]);
+    $data->financialAccounts[] = createFinancialAccount($financialAccountGroup, $contractId);
+}
+
+$feeRecipeTypes =  [
+    'cold_water',
+    'warm_water',
+    'gas',
+    'fund',
+    'cleanup',
+];
+
+foreach ($data->financialAccounts as $financialAccount) {
+    foreach ($feeRecipeTypes as $feeRecipeType) {
+        $since = $startingDatePerApartment[$contractApartmentMap[$financialAccount->contractId]];
+
+        $feeRecipeChangeLimit = $faker->numberBetween(1, 5);
+        for ($i = 1; $i <= $feeRecipeChangeLimit; ++$i) {
+            $until = $i === $feeRecipeChangeLimit ? null : $since->modify('+' . $faker->numberBetween(30, 600) . ' days');
+            $data->feeRecipes[] = createFeeRecipe($financialAccount, $feeRecipeType, $since, $until);
+            $since = $until ? $until->modify('+1 day') : null;
         }
     }
 }
